@@ -4,11 +4,11 @@ use bitcoin::consensus::{deserialize, serialize};
 pub use bitcoin::BlockHash;
 pub use bitcoin::Txid;
 
-use error::AddressParseError;
-use error::EncodeError;
-use error::FeeRateError;
 use error::FromScriptError;
 use error::ParseAmountError;
+use error::{AddressParseError, PsbtError};
+use error::{EncodeError, ExtractTxError};
+use error::{FeeRateError, PsbtParseError};
 
 use std::fmt::Display;
 use std::str::FromStr;
@@ -17,6 +17,56 @@ use std::sync::Arc;
 #[macro_use]
 mod macros;
 pub mod error;
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Object)]
+pub struct Psbt(bitcoin::Psbt);
+
+#[uniffi::export]
+impl Psbt {
+    #[uniffi::constructor]
+    pub fn from_unsigned_tx(tx: Arc<Transaction>) -> Result<Self, PsbtError> {
+        let psbt = bitcoin::Psbt::from_unsigned_tx(tx.0.clone().into())?;
+        Ok(Psbt(psbt))
+    }
+
+    #[uniffi::constructor]
+    pub fn deserialize(psbt_bytes: &[u8]) -> Result<Self, PsbtError> {
+        let psbt = bitcoin::Psbt::deserialize(psbt_bytes)?;
+        Ok(psbt.into())
+    }
+
+    #[uniffi::constructor]
+    pub fn deserialize_base64(psbt_base64: String) -> Result<Self, PsbtParseError> {
+        let psbt = bitcoin::Psbt::from_str(&psbt_base64)?;
+        Ok(psbt.into())
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        self.0.serialize()
+    }
+
+    pub fn serialize_base64(&self) -> String {
+        self.0.serialize_hex()
+    }
+
+    pub fn extract_tx(&self) -> Result<Arc<Transaction>, ExtractTxError> {
+        Ok(Arc::new(self.0.clone().extract_tx()?.into()))
+    }
+
+    pub fn combine(&self, other: Arc<Self>) -> Result<Psbt, PsbtError> {
+        let mut psbt = self.0.clone();
+        let other_psbt = other.0.clone();
+        psbt.combine(other_psbt)?;
+        Ok(psbt.into())
+    }
+
+    pub fn fee(&self) -> Result<Arc<Amount>, PsbtError> {
+        Ok(Arc::new(self.0.clone().fee()?.into()))
+    }
+}
+
+impl_from_core_type!(Psbt, bitcoin::Psbt);
+impl_from_ffi_type!(Psbt, bitcoin::Psbt);
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Object)]
 pub struct Address(bitcoin::Address<NetworkChecked>);
